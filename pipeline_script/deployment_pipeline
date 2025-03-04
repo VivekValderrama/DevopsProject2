@@ -25,19 +25,24 @@ pipeline {
             steps {
                 script {
                     sh """
-                    helm repo add stable https://charts.helm.sh/stable || true
                     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+                    helm repo update
+                    
                     # Check if namespace 'prometheus' exists
-                    if kubectl get namespace prometheus > /dev/null 2>&1; then
-                        # If namespace exists, upgrade the Helm release
-                        helm upgrade stable prometheus-community/kube-prometheus-stack -n prometheus
+                    kubectl get namespace prometheus || kubectl create namespace prometheus
+                    
+                    # Check if the Helm release exists before upgrading
+                    if helm list -n prometheus | grep kube-prometheus-stack; then
+                        echo "Upgrading Prometheus..."
+                        helm upgrade prometheus prometheus-community/kube-prometheus-stack -n prometheus
                     else
-                        # If namespace does not exist, create it and install Helm release
-                        kubectl create namespace prometheus
-                        helm install stable prometheus-community/kube-prometheus-stack -n prometheus
+                        echo "Installing Prometheus..."
+                        helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus
                     fi
-                    kubectl patch svc stable-kube-prometheus-sta-prometheus -n prometheus -p '{"spec": {"type": "LoadBalancer"}}'
-                    kubectl patch svc stable-grafana -n prometheus -p '{"spec": {"type": "LoadBalancer"}}'
+                    
+                    # Patch Prometheus & Grafana services for LoadBalancer
+                    kubectl patch svc prometheus-kube-prometheus-prometheus -n prometheus -p '{"spec": {"type": "LoadBalancer"}}'
+                    kubectl patch svc prometheus-grafana -n prometheus -p '{"spec": {"type": "LoadBalancer"}}'
                     """
                 }
             }
@@ -47,14 +52,26 @@ pipeline {
             steps {
                 script {
                     sh """
-                    # Install ArgoCD
-                    kubectl create namespace argocd || true
-                    kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+                    helm repo add argo https://argoproj.github.io/argo-helm || true
+                    helm repo update
+                    
+                    # Check if namespace 'argocd' exists
+                    kubectl get namespace argocd || kubectl create namespace argocd
+                    
+                    # Install ArgoCD with Helm if not already installed
+                    if helm list -n argocd | grep argocd; then
+                        echo "Upgrading ArgoCD..."
+                        helm upgrade argocd argo/argo-cd -n argocd
+                    else
+                        echo "Installing ArgoCD..."
+                        helm install argocd argo/argo-cd -n argocd
+                    fi
+                    
+                    # Patch ArgoCD service for LoadBalancer
                     kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
                     """
                 }
             }
         }
-		
     }
 }
